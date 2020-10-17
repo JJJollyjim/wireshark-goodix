@@ -25,6 +25,8 @@ reg_multiple = ProtoField.bool("goodix.sensor_reg.multiple", "Multiple addresses
 reg_address = ProtoField.uint16("goodix.sensor_reg.addr", "Base Address", base.HEX)
 reg_len = ProtoField.uint8("goodix.sensor_reg.len", "Length")
 
+pwrdown_scan_freq = ProtoField.uint16("goodix.powerdown_scan_frequency", "Powerdown Scan Frequecy")
+
 protocol.fields = {
    cmd0, cmd1, len, cksum,
    ack_cmd,
@@ -33,7 +35,8 @@ protocol.fields = {
    mcu_state_image, mcu_state_tls, mcu_state_spi, mcu_state_locked,
    reset_flag_sensor, reset_flag_mcu, reset_flag_sensor_copy,
    sensor_reset_success, sensor_reset_number,
-   reg_multiple, reg_address, reg_len
+   reg_multiple, reg_address, reg_len,
+   pwrdown_scan_freq
 }
 
 -- From log file, used as a fallback when the full cmd name is unknown
@@ -131,6 +134,12 @@ function protocol.dissector(buffer, pinfo, tree)
       cmd_name = "Read OTP"
 
       -- Request is empty, response is the OTP (32 bytes for my sensor model, I believe it differs with others)
+   elseif cmd_val == 0x90 then
+      cmd_name = "Upload Config"
+   elseif cmd_val == 0x94 then
+      cmd_name = "Set Powerdown Scan Frequency"
+      -- I believe this is for a feature (POV/persistance of vision) where the sensor continues scanning while the laptop is asleep, and sends it to the laptop once it wakes up
+      cmd_subtree:add_le(pwrdown_scan_freq, body_buf(0, 2)) -- Units unknown, though mine is 100, so ms would make sense?
    end
 
    if from_host then
