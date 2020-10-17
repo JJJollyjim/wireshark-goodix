@@ -14,12 +14,26 @@ mcu_state_tls = ProtoField.bool("goodix.mcu_state.is_tls_connected", "isTlsConne
 mcu_state_spi = ProtoField.bool("goodix.mcu_state.is_spi_send", "isSpiSend", 8, nil, 0x04) -- Meaning unknown
 mcu_state_locked = ProtoField.bool("goodix.mcu_state.is_locked", "isLocked", 8, nil, 0x08) -- Meaning unknown
 
+reset_flag_sensor = ProtoField.bool("goodix.reset_flag.sensor", "Reset Sensor", 8, nil, 0x01)
+reset_flag_mcu = ProtoField.bool("goodix.reset_flag.mcu", "Soft Reset MCU", 8, nil, 0x02)
+reset_flag_sensor_copy = ProtoField.bool("goodix.reset_flag.sensor_copy", "Reset Sensor (copy)", 8, nil, 0x04) -- Driver always sets this at the same time as reset_flag.sensor, firmware ignores this one
+
+sensor_reset_success = ProtoField.bool("goodix.sensor_reset_success", "Sensor reset success") -- False if a timeout occours getting a response from the sensor
+sensor_reset_number = ProtoField.uint16("goodix.sensor_reset_number", "Sensor reset number") -- Contents unknown, but it's a LE short sent if the sensor reset succeeds
+
+reg_multiple = ProtoField.bool("goodix.sensor_reg.multiple", "Multiple addresses") -- Only false is used by driver, no dissection implemented for true
+reg_address = ProtoField.uint16("goodix.sensor_reg.addr", "Base Address", base.HEX)
+reg_len = ProtoField.uint8("goodix.sensor_reg.len", "Length")
+
 protocol.fields = {
    cmd0, cmd1, len, cksum,
    ack_cmd,
    firmware_version,
    enabled,
-   mcu_state_image, mcu_state_tls, mcu_state_spi, mcu_state_locked
+   mcu_state_image, mcu_state_tls, mcu_state_spi, mcu_state_locked,
+   reset_flag_sensor, reset_flag_mcu, reset_flag_sensor_copy,
+   sensor_reset_success, sensor_reset_number,
+   reg_multiple, reg_address, reg_len
 }
 
 -- From log file, used as a fallback when the full cmd name is unknown
@@ -65,12 +79,23 @@ function protocol.dissector(buffer, pinfo, tree)
 
    if cmd_val == 0x00 then
       -- This packet has a fixed, non-standard checksum of 0x88
-      -- It's purpose is unknown.
+      -- Its purpose is unknown -- REd firmware does nothing when it recieves one.
       cmd_name = "nop"
    elseif cmd_val == 0xB0 then
       cmd_name = "Ack"
       if not from_host then
          cmd_subtree:add_le(ack_cmd, body_buf(0, 1))
+      end
+   elseif cmd_val == 0xA2 then
+      cmd_name = "Reset"
+
+      if from_host then
+          cmd_subtree:add_le(reset_flag_sensor, body_buf(0, 1))
+          cmd_subtree:add_le(reset_flag_mcu, body_buf(0, 1))
+          cmd_subtree:add_le(reset_flag_sensor_copy, body_buf(0, 1))
+      else
+         cmd_subtree:add_le(sensor_reset_success, body_buf(0, 1))
+         cmd_subtree:add_le(sensor_reset_number, body_buf(1, 2))
       end
    elseif cmd_val == 0xA8 then
       cmd_name = "Firmware Version"
@@ -89,6 +114,16 @@ function protocol.dissector(buffer, pinfo, tree)
          cmd_subtree:add_le(mcu_state_tls, body_buf(0, 1))
          cmd_subtree:add_le(mcu_state_spi, body_buf(0, 1))
          cmd_subtree:add_le(mcu_state_locked, body_buf(0, 1))
+      end
+   elseif cmd_val == 0x82 then
+      cmd_name = "Sensor Register Read"
+
+      if from_host then
+         cmd_subtree:add_le(reg_multiple, body_buf(0, 1))
+         cmd_subtree:add_le(reg_address, body_buf(1, 2))
+         cmd_subtree:add_le(reg_len, body_buf(3, 1)):append_string(" bytes")
+      else
+         -- Reply is just the bytes requested
       end
    end
 
