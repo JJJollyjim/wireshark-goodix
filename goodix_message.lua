@@ -121,7 +121,7 @@ function protocol.dissector(buffer, pinfo, tree)
       if from_host then
          cmd_subtree:add_le(reg_multiple, body_buf(0, 1))
          cmd_subtree:add_le(reg_address, body_buf(1, 2))
-         cmd_subtree:add_le(reg_len, body_buf(3, 1)):append_string(" bytes")
+         cmd_subtree:add_le(reg_len, body_buf(3, 1)):append_text(" bytes")
       else
          -- Reply is just the bytes requested
       end
