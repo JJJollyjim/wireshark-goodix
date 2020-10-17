@@ -9,7 +9,7 @@ Expects fake UDP packets on Port 1, since I don't think pcap has a SPI linktype.
 packet is encrypted with TLS. Decrypted data is then fed back in to the
 goodix_message dissector.
 
-Sample data is available in sample_data.pcap (though the timestamps are incorrect)
+Sample data is available in sample_data.pcap
 
 ### Usage
 
