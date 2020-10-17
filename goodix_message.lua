@@ -116,7 +116,7 @@ function protocol.dissector(buffer, pinfo, tree)
          cmd_subtree:add_le(mcu_state_locked, body_buf(0, 1))
       end
    elseif cmd_val == 0x82 then
-      cmd_name = "Sensor Register Read"
+      cmd_name = "Read Sensor Register"
 
       if from_host then
          cmd_subtree:add_le(reg_multiple, body_buf(0, 1))
@@ -125,6 +125,12 @@ function protocol.dissector(buffer, pinfo, tree)
       else
          -- Reply is just the bytes requested
       end
+   elseif cmd_val == 0xa6 then
+      -- I believe OTP refers to one-time-programmable memory, which is written with calibration values at the factory
+
+      cmd_name = "Read OTP"
+
+      -- Request is empty, response is the OTP (32 bytes for my sensor model, I believe it differs with others)
    end
 
    if from_host then
