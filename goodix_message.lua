@@ -21,9 +21,9 @@ reset_flag_sensor_copy = ProtoField.bool("goodix.reset_flag.sensor_copy", "Reset
 sensor_reset_success = ProtoField.bool("goodix.sensor_reset_success", "Sensor reset success") -- False if a timeout occours getting a response from the sensor
 sensor_reset_number = ProtoField.uint16("goodix.sensor_reset_number", "Sensor reset number") -- Contents unknown, but it's a LE short sent if the sensor reset succeeds
 
-reg_multiple = ProtoField.bool("goodix.sensor_reg.multiple", "Multiple addresses") -- Only false is used by driver, no dissection implemented for true
-reg_address = ProtoField.uint16("goodix.sensor_reg.addr", "Base Address", base.HEX)
-reg_len = ProtoField.uint8("goodix.sensor_reg.len", "Length")
+reg_multiple = ProtoField.bool("goodix.reg.multiple", "Multiple addresses") -- Only false is used by driver, no dissection implemented for true
+reg_address = ProtoField.uint16("goodix.reg.addr", "Base Address", base.HEX)
+reg_len = ProtoField.uint8("goodix.reg.len", "Length")
 
 pwrdown_scan_freq = ProtoField.uint16("goodix.powerdown_scan_frequency", "Powerdown Scan Frequecy")
 
@@ -39,24 +39,183 @@ protocol.fields = {
    pwrdown_scan_freq
 }
 
--- From log file, used as a fallback when the full cmd name is unknown
-cmd0_names = {
-   [0x0] = "NOP",
-   [0x2] = "Ima",
-   [0x3] = "FDT",
-   [0x4] = "FF",
-   [0x5] = "NAV",
-   [0x6] = "Sle",
-   [0x7] = "IDL",
-   [0x8] = "REG",
-   [0x9] = "CHIP",
-   [0xA] = "OTHER",
-   [0xB] = "MSG",
-   [0xC] = "NOTI",
-   [0xD] = "TLSCONN",
-   [0xE] = "PROD",
-   [0xF] = "UPFW",
+function extract_cmd0_cmd1(cmd)
+   return bit.rshift(cmd, 4), bit.rshift(cmd%16, 1)
+end
+
+function get_cmd_name(cmd)
+   cmd0, cmd1 = extract_cmd0_cmd1(cmd)
+
+   if commands[cmd0][cmd1] ~= nil then
+      return commands[cmd0][cmd1].name
+   else
+      return string.format("%s.%x", commands[cmd0].category_name, cmd1)
+   end
+end
+
+commands = {
+   [0x0] = {
+      category_name = "NOP",
+      [0x0] = {
+         name = "nop",
+         dissect_command = function(tree, buf)
+            -- This packet has a fixed, non-standard checksum of 0x88
+            -- Its purpose is unknown -- REd firmware does nothing when it recieves one.
+         end,
+      }
+   },
+   [0x2] = {
+      category_name = "Ima",
+   },
+   [0x3] = {
+      category_name = "FDT",
+   },
+   [0x4] = {
+      category_name = "FF",
+   },
+   [0x5] = {
+      category_name = "NAV",
+   },
+   [0x6] = {
+      category_name = "Sle",
+   },
+   [0x7] = {
+      category_name = "IDL",
+   },
+   [0x8] = {
+      category_name = "REG",
+      [1] = {
+         name = "Read Sensor Register",
+         dissect_command = function(tree, buf)
+            tree:add_le(reg_multiple, buf(0, 1))
+            tree:add_le(reg_address, buf(1, 2))
+            tree:add_le(reg_len, buf(3, 1)):append_text(" bytes")
+         end,
+         dissect_reply = function(tree, buf)
+            -- Reply is just the bytes requested
+         end,
+      },
+   },
+   [0x9] = {
+      category_name = "CHIP",
+      -- Operations on the sensor chip (not the MCU)
+
+      [0] = {
+         name = "Upload Config",
+         dissect_command = function(tree, buf)
+         end,
+         dissect_reply = function(tree, buf)
+         end,
+      },
+      [2] = {
+         name = "Set Powerdown Scan Frequency",
+         dissect_command = function(tree, buf)
+            -- I believe this is for a feature (POV/persistance of vision) where the sensor continues scanning while the laptop is asleep, and sends it to the laptop once it wakes up
+            tree:add_le(pwrdown_scan_freq, buf(0, 2)) -- Units unknown, though mine is 100, so ms would make sense?
+         end,
+         dissect_reply = function(tree, buf)
+            -- TODO check
+         end,
+      },
+      [3] = {
+         name = "Enable Chip",
+         dissect_command = function(tree, buf)
+            tree:add_le(enabled, buf(0, 1))
+         end,
+      },
+   },
+   [0xA] = {
+      category_name = "OTHER",
+
+      [1] = {
+         name = "Reset",
+         dissect_command = function(tree, buf)
+            tree:add_le(reset_flag_sensor, buf(0, 1))
+            tree:add_le(reset_flag_mcu, buf(0, 1))
+            tree:add_le(reset_flag_sensor_copy, buf(0, 1))
+         end,
+         dissect_reply = function(tree, buf)
+            tree:add_le(sensor_reset_success, buf(0, 1))
+            tree:add_le(sensor_reset_number, buf(1, 2))
+         end,
+      },
+      [3] = {
+         name = "Read OTP",
+         -- I believe OTP refers to one-time-programmable memory, which is written with calibration values at the factory
+         dissect_command = function(tree, buf)
+            -- Request is empty
+         end,
+         dissect_reply = function(tree, buf)
+            -- The OTP (32 bytes for my sensor model, I believe it differs with others)
+         end,
+
+      },
+      [4] = {
+         name = "Firmware Version",
+         dissect_command = function(tree, buf)
+         end,
+         dissect_reply = function(tree, buf)
+            tree:add_le(firmware_version, buf())
+         end,
+      },
+      [7] = {
+         name = "MCU State",
+         dissect_command = function(tree, buf)
+            -- TODO what's the the 0x55
+         end,
+         dissect_reply = function(tree, buf)
+            tree:add_le(mcu_state_image, buf(0, 1))
+            tree:add_le(mcu_state_tls, buf(0, 1))
+            tree:add_le(mcu_state_spi, buf(0, 1))
+            tree:add_le(mcu_state_locked, buf(0, 1))
+         end,
+      },
+   },
+   [0xB] = {
+      category_name = "MSG",
+
+      [0] = {
+         name = "Ack",
+         dissect_reply = function(tree, buf)
+            tree:add_le(ack_cmd, buf(0, 1)):append_text(" (" .. get_cmd_name(buf(0,1):le_uint()) .. ")")
+         end,
+      },
+   },
+   [0xC] = {
+      category_name = "NOTI",
+   },
+   [0xD] = {
+      category_name = "TLSCONN",
+
+      [0] = {
+         name = "Request TLS Connection",
+         dissect_command = function(tree, buf)
+            -- No args.
+            -- MCU doesn't do a normal reply (except the ack), but it triggers it to send a TLS Client Hello as a V2 encrypted packet
+         end,
+      },
+      [1] = {
+         name = "TLS Packet (v1?)",
+         dissect_command = function(tree, buf)
+            -- Not used by gfspi.dll, but the MCU firmware is able to recieve TLS packets this way, in addition to the V2 way
+            -- Dissection not implemented, should be easy to stack the TLS dissector here if needed, as is done in goodix_v2.lua
+         end,
+      },
+      [2] = {
+         name = "TLS Successfully Established",
+         dissect_command = function(tree, buf)
+            -- No args, no reply.
+         end,
+      },
+      [0xE] = {
+         category_name = "PROD",
+      },
+      [0xF] = {
+         category_name = "UPFW",
+      },
+   }
 }
+
 
 function protocol.dissector(buffer, pinfo, tree)
    length = buffer:len()
@@ -73,80 +232,28 @@ function protocol.dissector(buffer, pinfo, tree)
    subtree:add_le(len, buffer(1,2)):append_text(" bytes (including checksum)")
    subtree:add_le(cksum, buffer(buffer:len()-1,1))
 
-   cmd_val = buffer(0, 1):le_uint()
    from_host = pinfo.src == Address.ip("1.1.1.1")
 
-   local cmd_subtree = tree:add(protocol, body_buf())
 
-   cmd_name = string.format("%s.%x", cmd0_names[bit.rshift(cmd_val, 4)], bit.rshift(cmd_val%16, 1))
+   local cmd_subtree = subtree:add(protocol, body_buf())
 
-   if cmd_val == 0x00 then
-      -- This packet has a fixed, non-standard checksum of 0x88
-      -- Its purpose is unknown -- REd firmware does nothing when it recieves one.
-      cmd_name = "nop"
-   elseif cmd_val == 0xB0 then
-      cmd_name = "Ack"
-      if not from_host then
-         cmd_subtree:add_le(ack_cmd, body_buf(0, 1))
-      end
-   elseif cmd_val == 0xA2 then
-      cmd_name = "Reset"
-
-      if from_host then
-          cmd_subtree:add_le(reset_flag_sensor, body_buf(0, 1))
-          cmd_subtree:add_le(reset_flag_mcu, body_buf(0, 1))
-          cmd_subtree:add_le(reset_flag_sensor_copy, body_buf(0, 1))
-      else
-         cmd_subtree:add_le(sensor_reset_success, body_buf(0, 1))
-         cmd_subtree:add_le(sensor_reset_number, body_buf(1, 2))
-      end
-   elseif cmd_val == 0xA8 then
-      cmd_name = "Firmware Version"
-      if not from_host then
-         cmd_subtree:add_le(firmware_version, body_buf())
-      end
-   elseif cmd_val == 0x96 then
-      cmd_name = "Enable Chip"
-      if from_host then
-         cmd_subtree:add_le(enabled, body_buf(0, 1))
-      end
-   elseif cmd_val == 0xae then
-      cmd_name = "MCU State"
-      if not from_host then
-         cmd_subtree:add_le(mcu_state_image, body_buf(0, 1))
-         cmd_subtree:add_le(mcu_state_tls, body_buf(0, 1))
-         cmd_subtree:add_le(mcu_state_spi, body_buf(0, 1))
-         cmd_subtree:add_le(mcu_state_locked, body_buf(0, 1))
-      end
-   elseif cmd_val == 0x82 then
-      cmd_name = "Read Sensor Register"
-
-      if from_host then
-         cmd_subtree:add_le(reg_multiple, body_buf(0, 1))
-         cmd_subtree:add_le(reg_address, body_buf(1, 2))
-         cmd_subtree:add_le(reg_len, body_buf(3, 1)):append_text(" bytes")
-      else
-         -- Reply is just the bytes requested
-      end
-   elseif cmd_val == 0xa6 then
-      -- I believe OTP refers to one-time-programmable memory, which is written with calibration values at the factory
-
-      cmd_name = "Read OTP"
-
-      -- Request is empty, response is the OTP (32 bytes for my sensor model, I believe it differs with others)
-   elseif cmd_val == 0x90 then
-      cmd_name = "Upload Config"
-   elseif cmd_val == 0x94 then
-      cmd_name = "Set Powerdown Scan Frequency"
-      -- I believe this is for a feature (POV/persistance of vision) where the sensor continues scanning while the laptop is asleep, and sends it to the laptop once it wakes up
-      cmd_subtree:add_le(pwrdown_scan_freq, body_buf(0, 2)) -- Units unknown, though mine is 100, so ms would make sense?
-   end
+   cmd_val = buffer(0, 1):le_uint()
+   cmd0, cmd1 = extract_cmd0_cmd1(cmd_val)
 
    if from_host then
-      summary = "Command: " .. cmd_name
+      summary = "Command: " .. get_cmd_name(cmd_val)
+
+      if commands[cmd0][cmd1] ~= nil then
+         commands[cmd0][cmd1].dissect_command(cmd_subtree, body_buf)
+      end
    else
-      summary = "Reply: " .. cmd_name
+      summary = "Reply: " .. get_cmd_name(cmd_val)
+
+      if commands[cmd0][cmd1] ~= nil then
+         commands[cmd0][cmd1].dissect_reply(cmd_subtree, body_buf)
+      end
    end
+
    cmd_subtree.text = summary
    pinfo.cols.info = summary
 end
