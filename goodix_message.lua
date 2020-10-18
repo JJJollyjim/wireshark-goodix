@@ -2,6 +2,7 @@ protocol = Proto("goodix",  "Goodix Fingerprint Sensor Message Protocol")
 
 cmd0 = ProtoField.uint8("goodix.cmd0", "cmd0", base.HEX, nil, 0xF0)
 cmd1 = ProtoField.uint8("goodix.cmd1", "cmd1", base.HEX, nil, 0x0E)
+cmd_lsb = ProtoField.bool("goodix.cmd_lsb", "cmd LSB", 8, nil, 0x01) -- Always false afaik, but dissecting just in case.
 len = ProtoField.uint16("goodix.len", "Length", base.DEC)
 cksum = ProtoField.uint8("goodix.cksum", "Checksum", base.HEX)
 
@@ -28,7 +29,7 @@ reg_len = ProtoField.uint8("goodix.reg.len", "Length")
 pwrdown_scan_freq = ProtoField.uint16("goodix.powerdown_scan_frequency", "Powerdown Scan Frequecy")
 
 protocol.fields = {
-   cmd0, cmd1, len, cksum,
+   cmd0, cmd1, cmd_lsb, len, cksum,
    ack_cmd,
    firmware_version,
    enabled,
@@ -53,6 +54,7 @@ function get_cmd_name(cmd)
    end
 end
 
+-- Nested table, keyed by [cmd0][cmd1]. 
 commands = {
    [0x0] = {
       category_name = "NOP",
@@ -159,7 +161,7 @@ commands = {
          end,
       },
       [7] = {
-         name = "MCU State",
+         name = "Query MCU State",
          dissect_command = function(tree, buf)
             -- TODO what's the the 0x55
          end,
@@ -229,6 +231,7 @@ function protocol.dissector(buffer, pinfo, tree)
 
    subtree:add_le(cmd0, buffer(0,1))
    subtree:add_le(cmd1, buffer(0,1))
+   subtree:add_le(cmd_lsb, buffer(0,1))
    subtree:add_le(len, buffer(1,2)):append_text(" bytes (including checksum)")
    subtree:add_le(cksum, buffer(buffer:len()-1,1))
 
