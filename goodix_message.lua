@@ -1,7 +1,7 @@
 protocol = Proto("goodix",  "Goodix Fingerprint Sensor Message Protocol")
 
-cmd0 = ProtoField.uint8("goodix.cmd0", "cmd0", base.HEX, nil, 0xF0)
-cmd1 = ProtoField.uint8("goodix.cmd1", "cmd1", base.HEX, nil, 0x0E)
+cmd0_field = ProtoField.uint8("goodix.cmd0", "cmd0", base.HEX, nil, 0xF0)
+cmd1_field = ProtoField.uint8("goodix.cmd1", "cmd1", base.HEX, nil, 0x0E)
 cmd_lsb = ProtoField.bool("goodix.cmd_lsb", "cmd LSB", 8, nil, 0x01) -- Always false afaik, but dissecting just in case.
 len = ProtoField.uint16("goodix.len", "Length", base.DEC)
 cksum = ProtoField.uint8("goodix.cksum", "Checksum", base.HEX)
@@ -29,7 +29,7 @@ reg_len = ProtoField.uint8("goodix.reg.len", "Length")
 pwrdown_scan_freq = ProtoField.uint16("goodix.powerdown_scan_frequency", "Powerdown Scan Frequecy")
 
 protocol.fields = {
-   cmd0, cmd1, cmd_lsb, len, cksum,
+   cmd0_field, cmd1_field, cmd_lsb, len, cksum,
    ack_cmd,
    firmware_version,
    enabled,
@@ -229,8 +229,8 @@ function protocol.dissector(buffer, pinfo, tree)
 
    body_buf = buffer(3, buffer:len()-4):tvb()
 
-   subtree:add_le(cmd0, buffer(0,1))
-   subtree:add_le(cmd1, buffer(0,1))
+   subtree:add_le(cmd0_field, buffer(0,1))
+   subtree:add_le(cmd1_field, buffer(0,1))
    subtree:add_le(cmd_lsb, buffer(0,1))
    subtree:add_le(len, buffer(1,2)):append_text(" bytes (including checksum)")
    subtree:add_le(cksum, buffer(buffer:len()-1,1))
@@ -241,19 +241,19 @@ function protocol.dissector(buffer, pinfo, tree)
    local cmd_subtree = subtree:add(protocol, body_buf())
 
    cmd_val = buffer(0, 1):le_uint()
-   cmd0, cmd1 = extract_cmd0_cmd1(cmd_val)
+   cmd0_val, cmd1_val = extract_cmd0_cmd1(cmd_val)
 
    if from_host then
       summary = "Command: " .. get_cmd_name(cmd_val)
 
-      if commands[cmd0][cmd1] ~= nil then
-         commands[cmd0][cmd1].dissect_command(cmd_subtree, body_buf)
+      if commands[cmd0_val][cmd1_val] ~= nil then
+         commands[cmd0_val][cmd1_val].dissect_command(cmd_subtree, body_buf)
       end
    else
       summary = "Reply: " .. get_cmd_name(cmd_val)
 
-      if commands[cmd0][cmd1] ~= nil then
-         commands[cmd0][cmd1].dissect_reply(cmd_subtree, body_buf)
+      if commands[cmd0_val][cmd1_val] ~= nil then
+         commands[cmd0_val][cmd1_val].dissect_reply(cmd_subtree, body_buf)
       end
    end
 
