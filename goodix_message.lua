@@ -235,7 +235,7 @@ function protocol.dissector(buffer, pinfo, tree)
    subtree:add_le(len, buffer(1,2)):append_text(" bytes (including checksum)")
    subtree:add_le(cksum, buffer(buffer:len()-1,1))
 
-   from_host = pinfo.src == Address.ip("1.1.1.1")
+   from_host = pinfo.src == Address.ip("1.1.1.1") or tostring(pinfo.src) == "host"
 
 
    local cmd_subtree = subtree:add(protocol, body_buf())
@@ -262,3 +262,8 @@ function protocol.dissector(buffer, pinfo, tree)
 end
 
 DissectorTable.get("tls.port"):add(1, protocol)
+DissectorTable.get("tls.port"):add(1, protocol)
+
+DissectorTable.get("usb.protocol"):add_for_decode_as(protocol)
+DissectorTable.get("usb.product"):add_for_decode_as(protocol)
+DissectorTable.get("usb.device"):add_for_decode_as(protocol)

@@ -2,19 +2,22 @@
 
 Wireshark protocol dissector for the SPI protocol of the GXFP5187.
 
-Expects fake UDP packets on Port 1, since I don't think pcap has a SPI linktype.
+SPI packets are to be provided as fake UDP packets on Port 1, since I don't think
+pcap has a SPI linktype.
 
 `goodix_message.lua` describes the interesting packet information.
 `goodix_v2.lua` is an encapsulation format that specifies whether or not the
 packet is encrypted with TLS. Decrypted data is then fed back in to the
 goodix_message dissector.
 
-Sample data is available in sample_data.pcap
+Sample SPI data is available in sample_data.pcap
 
 ### Usage
 
 Drop both .lua files in `~/.local/lib/wireshark/plugins` (or another 
 [plugin directory](https://www.wireshark.org/docs/wsug_html_chunked/ChPluginFolders.html))
+
+For USB, right click a packet and select "Decode As...", then select GOODIX from the dropdown
 
 ### Decryption
 
