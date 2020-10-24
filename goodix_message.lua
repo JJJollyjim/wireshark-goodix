@@ -6,6 +6,8 @@ cmd_lsb = ProtoField.bool("goodix.cmd_lsb", "cmd LSB", 8, nil, 0x01) -- Always f
 len = ProtoField.uint16("goodix.len", "Length", base.DEC)
 cksum = ProtoField.uint8("goodix.cksum", "Checksum", base.HEX)
 
+ack_bool = ProtoField.bool("goodix.ack_bool", "Unknown bool", 2, nil, 0x02)
+ack_true = ProtoField.bool("goodix.ack_true", "Always true", 2, nil, 0x01)
 ack_cmd = ProtoField.uint8("goodix.ack_cmd", "ACKed Command", base.HEX)
 firmware_version = ProtoField.stringz("goodix.firmware_version", "Firmware Version")
 enabled = ProtoField.bool("goodix.enabled", "Enabled")
@@ -14,6 +16,7 @@ mcu_state_image = ProtoField.bool("goodix.mcu_state.is_image_valid", "isImageVal
 mcu_state_tls = ProtoField.bool("goodix.mcu_state.is_tls_connected", "isTlsConnected", 8, nil, 0x02)
 mcu_state_spi = ProtoField.bool("goodix.mcu_state.is_spi_send", "isSpiSend", 8, nil, 0x04) -- Meaning unknown
 mcu_state_locked = ProtoField.bool("goodix.mcu_state.is_locked", "isLocked", 8, nil, 0x08) -- Meaning unknown
+mcu_state_sensor_crc32_valid = ProtoField.bool("goodix.mcu_state.sensor_crc32_valid", "Correct crc32 on the last image from the sensor")
 
 reset_flag_sensor = ProtoField.bool("goodix.reset_flag.sensor", "Reset Sensor", 8, nil, 0x01)
 reset_flag_mcu = ProtoField.bool("goodix.reset_flag.mcu", "Soft Reset MCU", 8, nil, 0x02)
@@ -28,16 +31,23 @@ reg_len = ProtoField.uint8("goodix.reg.len", "Length")
 
 pwrdown_scan_freq = ProtoField.uint16("goodix.powerdown_scan_frequency", "Powerdown Scan Frequecy")
 
+config_sensor_chip = ProtoField.uint8("goodix.config_sensor_chip", "Sensor Chip", base.RANGE_STRING, {
+                                         {0, 0, "GF3208"},
+                                         {1, 1, "GF3288"},
+                                         {2, 2, "GF3266"},
+}, 0xF0)
+
 protocol.fields = {
    cmd0_field, cmd1_field, cmd_lsb, len, cksum,
-   ack_cmd,
+   ack_cmd, ack_true, ack_bool,
    firmware_version,
    enabled,
-   mcu_state_image, mcu_state_tls, mcu_state_spi, mcu_state_locked,
+   mcu_state_image, mcu_state_tls, mcu_state_spi, mcu_state_locked, mcu_state_sensor_crc32_valid,
    reset_flag_sensor, reset_flag_mcu, reset_flag_sensor_copy,
    sensor_reset_success, sensor_reset_number,
    reg_multiple, reg_address, reg_len,
-   pwrdown_scan_freq
+   pwrdown_scan_freq,
+   config_sensor_chip
 }
 
 function extract_cmd0_cmd1(cmd)
@@ -105,6 +115,7 @@ commands = {
       [0] = {
          name = "Upload Config",
          dissect_command = function(tree, buf)
+            tree:add_le(config_sensor_chip, buf(0, 1))
          end,
          dissect_reply = function(tree, buf)
          end,
@@ -170,6 +181,7 @@ commands = {
             tree:add_le(mcu_state_tls, buf(0, 1))
             tree:add_le(mcu_state_spi, buf(0, 1))
             tree:add_le(mcu_state_locked, buf(0, 1))
+            tree:add_le(mcu_state_sensor_crc32_valid, buf(3, 1))
          end,
       },
    },
@@ -179,6 +191,8 @@ commands = {
       [0] = {
          name = "Ack",
          dissect_reply = function(tree, buf)
+            tree:add_le(ack_true, buf(1, 1))
+            tree:add_le(ack_bool, buf(1, 1)) -- commands 0-5 (inclusive) are ignored if this is true.
             tree:add_le(ack_cmd, buf(0, 1)):append_text(" (" .. get_cmd_name(buf(0,1):le_uint()) .. ")")
          end,
       },
@@ -194,13 +208,16 @@ commands = {
          dissect_command = function(tree, buf)
             -- No args.
             -- MCU doesn't do a normal reply (except the ack), but it triggers it to send a TLS Client Hello as a V2 encrypted packet
+
+            -- Until sending "TLS Successfully Established", any messages other than TLSCONN.* and "Query MCU State" are ignored.
          end,
       },
       [1] = {
-         name = "TLS Packet (v1?)",
+         name = "Resend Image data?",
          dissect_command = function(tree, buf)
-            -- Not used by gfspi.dll, but the MCU firmware is able to recieve TLS packets this way, in addition to the V2 way
-            -- Dissection not implemented, should be easy to stack the TLS dissector here if needed, as is done in goodix_v2.lua
+            -- Seemingly gives the same response over TLS as sending Ima.0 does,
+            -- but without reading a new image from the sensor. Not seen used,
+            -- untested.
          end,
       },
       [2] = {
